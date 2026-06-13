@@ -1,0 +1,35 @@
+# Local environment / secrets (lab creds are weak by design, but never commit them)
+.env
+*.local
+
+# Captured research data — per-action records, raw model output, screenshots.
+# Uncensored Category-B output is sensitive research data (§7): keep it out of git.
+# Ignore CONTENTS (captures/*) not the dir itself, so the README stays tracked.
+captures/*
+!captures/.gitkeep
+!captures/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node (if a JS portal variant is added)
+node_modules/
+
+# Docker / runtime
+*.pid
+data/
+
+# Uploaded files landing zone (poisoning vector input — runtime artifacts)
+services/tier2-portal/uploads/*
+!services/tier2-portal/uploads/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

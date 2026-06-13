@@ -1,0 +1,40 @@
+# =============================================================================
+# Minerva Lab — Samba AD DC overlay (DOCUMENTED FALLBACK, §2.7)
+#
+# Bring up WITH the base stack only when standing in for the genuine Windows
+# Server 2022 AD node (the protocol's preferred legacy trust core):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ad.yml up -d
+#
+# In the real lab the AD DC is a SEPARATE Tailscale-meshed host (genuine Windows
+# on Vultr, §3); the droplet containers authenticate to it over the tailnet.
+# This overlay represents that node on a single machine for local development
+# and for exercising the AD-compromise -> RAG-access pivot (FLOOR chain, §2.7).
+# =============================================================================
+name: minerva-lab
+
+volumes:
+  sambadata:
+
+services:
+  samba-ad:
+    build: ./services/samba-ad
+    container_name: minerva-samba-ad
+    hostname: dc1
+    restart: unless-stopped
+    env_file: .env
+    # AD DC needs to manage ACLs/xattrs on sysvol and run internal DNS.
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - sambadata:/var/lib/samba
+    networks:
+      net_internal:
+        aliases:
+          - dc1.statefed.lab
+          - statefed.lab
+    # No published ports: the DC is reachable by the droplet containers over
+    # net_internal (the tailnet analogue). DNS/Kerberos/LDAP/SMB stay internal.

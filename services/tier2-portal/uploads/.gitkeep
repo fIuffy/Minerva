@@ -1,0 +1,2 @@
+# Runtime landing zone for uploaded documents (the poisoning-vector input).
+# Contents are gitignored; this file keeps the directory present in the image.

@@ -1,0 +1,205 @@
+# =============================================================================
+# Minerva Lab — droplet environment stack (FLOOR + TARGET build)
+# Attacking the Playbook — Cross-Framework Coverage Gap Analysis (ATT&CK/ATLAS)
+#
+# Models a U.S. federal/state enterprise MID-MIGRATION to zero trust (§2). The
+# coexistence seam between legacy implicit trust and AI-enabled services is the
+# research surface. Network segmentation (§2.3) mirrors NIST 800-207
+# microsegmentation: net_edge (DMZ) / net_internal (legacy implicit trust) /
+# net_federal (ZT-guarded, single policy-enforcement checkpoint).
+#
+# In the real lab the genuine Windows AD node and the laptop GPU (Ollama) are
+# separate Tailscale-meshed hosts (§3). This Compose file is the DigitalOcean
+# droplet's Dockerized tier. The Samba AD fallback (§2.7) is in the optional
+# overlay: docker-compose.ad.yml.
+#
+# CONTAINMENT (§7): every service here is a self-owned target on isolated Docker
+# networks. Nothing is exposed beyond the host loopback / tailnet. Weak creds are
+# intentional research targets, not secrets.
+# =============================================================================
+name: minerva-lab
+
+# ---- Network segmentation (microsegmentation analogue, §2.3) -----------------
+networks:
+  net_edge:        # Public edge / DMZ — Tier 2 web app, attacker foothold
+    name: net_edge
+    driver: bridge
+  net_internal:    # Internal (legacy implicit trust) — DBs, broker, RAG retrieval
+    name: net_internal
+    driver: bridge
+    internal: true # no direct egress; legacy zone is not internet-facing
+  net_federal:     # Restricted federal (ZT-guarded) — Tier 1 only, via checkpoint
+    name: net_federal
+    driver: bridge
+    internal: true
+
+volumes:
+  pgdata:
+  mysqldata:
+
+services:
+  # ===========================================================================
+  # TIER 1 (relational data layer) — Postgres citizen records + pgvector store
+  # Lives on net_internal. Relational SQLi target (T1190) AND the RAG vector DB.
+  # ===========================================================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: minerva-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-statedata}
+      POSTGRES_USER: ${POSTGRES_USER:-portal_svc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portal_svc_pw}
+    # init scripts run once on an empty data dir (clean-state reset drops the volume)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./seed/postgres:/docker-entrypoint-initdb.d:ro
+    networks: [net_internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal_svc} -d ${POSTGRES_DB:-statedata}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Document store (MySQL) — RAG ingestion source (dual-role data layer, §2.1)
+  # Uploaded documents land here; the RAG ingest job vectorizes them into
+  # pgvector. The upload path is the ATLAS poisoning vector (AML.T0020).
+  # ===========================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: minerva-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-docstore}
+      MYSQL_USER: ${MYSQL_USER:-docstore_svc}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-docstore_svc_pw}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-docstore_root_pw}
+    volumes:
+      - mysqldata:/var/lib/mysql
+      - ./seed/mysql:/docker-entrypoint-initdb.d:ro
+    networks: [net_internal]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-docstore_root_pw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Federation broker (Keycloak, OIDC) — the partial zero-trust side (§2.5)
+  # Issues Tier 1 access tokens to the Tier 2 portal. Minimal config (dev mode,
+  # imported realm) per "configured minimally, not a full IdP deployment" (§2.6).
+  # ===========================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: minerva-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    networks: [net_internal]
+    # Bound to host loopback only for admin console inspection during build.
+    ports:
+      - "127.0.0.1:8080:8080"
+    # Keycloak 25 serves health on the management port 9000 (not 8080).
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+
+  # ===========================================================================
+  # TIER 1 — Federal data API (final exfil target, §2.1 / §5.3 chain end)
+  # net_federal ONLY. No route from net_internal except through fed-gateway.
+  # Requires a valid federation-broker JWT with the high-assurance tier claim.
+  # ===========================================================================
+  tier1-api:
+    build: ./services/tier1-api
+    container_name: minerva-tier1-api
+    restart: unless-stopped
+    environment:
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-statefed}
+      REQUIRED_AUDIENCE: tier1-api
+      REQUIRED_ASSURANCE: high   # PIV/IAL-analogue claim (§2.2)
+    networks: [net_federal]
+    # NB: no published ports. Reachable only via fed-gateway. This models
+    # "Tier 1 sits behind the federated policy checkpoint on net_federal" (§2.3).
+
+  # ===========================================================================
+  # Policy-enforcement checkpoint (federation gateway) — the ONE place zero
+  # trust is enforced (§2.3). Dual-homed internal<->federal. Validates the
+  # Keycloak JWT (signature + audience + assurance tier) before proxying to
+  # Tier 1. The federated boundary attacks must ride or bypass (T1550 analogue).
+  # ===========================================================================
+  fed-gateway:
+    build: ./services/fed-gateway
+    container_name: minerva-fed-gateway
+    restart: unless-stopped
+    environment:
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-statefed}
+      TIER1_UPSTREAM: http://tier1-api:8000
+      REQUIRED_AUDIENCE: tier1-api
+      REQUIRED_ASSURANCE: high
+    networks: [net_internal, net_federal]
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  # ===========================================================================
+  # TIER 2 — State citizen portal (public edge, the pivot bridge, §2.3)
+  # The ONLY container dual-homed on net_edge + net_internal. Attacker foothold.
+  # Intentional research targets (documented, isolated lab):
+  #   - injectable citizen-records lookup  -> T1190 / SQLi
+  #   - unauthenticated document upload     -> AML.T0020 poisoning vector
+  #   - RAG query passes retrieved context into the LLM prompt -> AML.T0051
+  #   - holds the Keycloak client secret    -> T1550 federated-trust ride
+  # ===========================================================================
+  tier2-portal:
+    build: ./services/tier2-portal
+    container_name: minerva-tier2-portal
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FED_GATEWAY_URL: http://fed-gateway:8000
+    volumes:
+      - ./seed/documents:/seed/documents:ro
+    networks: [net_edge, net_internal]
+    # Public edge: exposed on the host (tailnet-only in the real lab; never 0.0.0.0
+    # to the internet — cloud firewall restricts inbound to researcher IP + tailnet, §3/§7).
+    ports:
+      - "127.0.0.1:8088:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      fed-gateway:
+        condition: service_started
+
+  # ===========================================================================
+  # RAG ingestion job — MySQL document store -> pgvector embeddings.
+  # Run on demand (clean-state re-index) or to bulk-load the seed corpus:
+  #   docker compose run --rm rag-ingest
+  # Inference/embeddings served by Ollama on the laptop GPU over the tailnet.
+  # Under the "tools" profile so it does not auto-start with `up`.
+  # ===========================================================================
+  rag-ingest:
+    build: ./services/rag-ingest
+    container_name: minerva-rag-ingest
+    profiles: ["tools"]
+    env_file: .env
+    volumes:
+      - ./seed/documents:/seed/documents:ro
+    networks: [net_internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
