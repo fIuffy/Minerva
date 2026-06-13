@@ -27,7 +27,10 @@ networks:
   net_internal:    # Internal (legacy implicit trust) — DBs, broker, RAG retrieval
     name: net_internal
     driver: bridge
-    internal: true # no direct egress; legacy zone is not internet-facing
+    # NOT internal:true — the legacy zone needs egress to reach the inference
+    # endpoint (Ollama on the laptop) over the tailnet/host, exactly as in the
+    # real mesh. Tier isolation is enforced by network MEMBERSHIP, not airgapping:
+    # Tier 1 stays truly unreachable on net_federal (internal:true) below.
   net_federal:     # Restricted federal (ZT-guarded) — Tier 1 only, via checkpoint
     name: net_federal
     driver: bridge

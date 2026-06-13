@@ -133,13 +133,29 @@ services/
   fed-gateway/              Federation policy-enforcement checkpoint (JWT PEP)
   rag-ingest/               MySQL docs → pgvector embedding job
   samba-ad/                 Samba AD DC fallback (kerberoastable + DCSync accts)
+harness/                    AI-assisted attack harness (A/B/C backends, human-in-the-loop runner)
 seed/                       Postgres citizen schema/data, MySQL doc store, RAG corpus
 keycloak/                   statefed realm export (OIDC broker, assurance claims)
 scripts/                    reset · healthcheck · snapshot-destroy (cost discipline)
-docs/                       architecture · attack-task-matrix · data-capture-rubric · runbook
+docs/                       architecture · attack-task-matrix · data-capture-rubric · runbook · demo-script
 templates/                  Blank per-action-record + gap-flagged forms (§8.1/§8.3)
 captures/                   Where per-action records land (gitignored; sensitive §7)
 ```
+
+## AI-assisted attack harness (`harness/`)
+
+The research instrument for the **AI-assisted attack** question (§4). It runs each
+attack task across **Category A** (commercial/guardrailed — Gemini or OpenAI/Azure
+over their cloud APIs), **Category B** (local/open-source — Ollama on the laptop
+GPU), and **Category C** (manual baseline). It is **human-in-the-loop**: the model
+*proposes* a step, the researcher *approves*, and only then is it executed against
+the **lab only** ([`harness/lab.py`](harness/lab.py) enforces a host allowlist —
+containment, §7). Every run auto-writes a per-action record (§8.1), so *running it
+is the data collection*. See [`harness/README.md`](harness/README.md).
+
+> Note: commercial models (Gemini, Copilot) cannot run locally — there are no
+> downloadable weights. Category A calls their **cloud APIs**; the lab reaches out.
+> For a Google-flavored *local* model, use Gemma via Ollama (that's Gemma, not Gemini).
 
 ## Methodology package (the reproducible deliverable, §10)
 
@@ -183,9 +199,12 @@ Validated on this machine (Docker 27.3 / Compose v2.30):
   (with `audience` + `assurance=high` mappers) → gateway JWT validation → Tier 1 record.
 - ✅ **Policy checkpoint is real:** high-assurance passes (200); standard-assurance `state-clerk` rejected (403).
 - ✅ **Segmentation enforced:** the edge portal cannot resolve/reach `tier1-api` on `net_federal`.
-- ✅ RAG `/ask` degrades gracefully (502) when Ollama is unreachable, per §9.
-- ⚙️ LLM inference (RAG generation/embeddings) requires the researcher's Ollama
-  endpoint — by design it runs on the RTX 4050 laptop over the tailnet (§2.6).
+- ✅ **RAG live end-to-end** on an RTX 4050 (Ollama `llama3` + `nomic-embed-text`): `/ask`
+  retrieves from pgvector and returns a grounded answer citing its sources; degrades
+  gracefully (502) when inference is down (§9).
+- ✅ **Harness verified:** Category-B model proposes → researcher-approved action executes
+  against the lab → per-action record auto-written; the host allowlist refuses any
+  off-lab target in code (containment, §7).
 
 ## Status & schedule (§10)
 
