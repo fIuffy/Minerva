@@ -23,6 +23,7 @@ strings, Kerberoast/DCSync execution) is the researcher's hand-execution phase
 the weapon (§7 "describes behavior and mappings, not turnkey payloads").
 ================================================================================
 """
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
@@ -89,11 +90,16 @@ async def upload(file: UploadFile = File(...), title: str = Form("")):
 
     # Persist raw upload to disk (captured artifact) and into the doc store.
     (UPLOAD_DIR / file.filename).write_bytes(raw) if file.filename else None
+    # Unique source per upload — the SAME string is used for MySQL and pgvector
+    # (so retrieval shows the true origin), and it never collides with the
+    # documents.source UNIQUE constraint. An attacker can upload many docs; each
+    # becomes its own retrievable chunk.
+    source = f"upload:{file.filename or title}#{uuid.uuid4().hex[:8]}"
     myconn = db.mysql_conn()
     with myconn.cursor() as cur:
         cur.execute(
             "INSERT INTO documents (title, source, body) VALUES (%s, %s, %s)",
-            (title, f"upload:{file.filename}", text),
+            (title, source, text),
         )
         doc_id = cur.lastrowid
     myconn.close()
@@ -103,7 +109,7 @@ async def upload(file: UploadFile = File(...), title: str = Form("")):
     rag_error = None
     try:
         pg = db.pg_conn()
-        rag.index_document(pg, doc_id, f"upload:{title}", text)
+        rag.index_document(pg, doc_id, source, text)
         pg.close()
         indexed = True
     except Exception as e:  # inference link may be down (§9) — report honestly
@@ -112,6 +118,7 @@ async def upload(file: UploadFile = File(...), title: str = Form("")):
     return {
         "doc_id": doc_id,
         "title": title,
+        "source": source,
         "stored_bytes": len(raw),
         "indexed_into_rag": indexed,
         "rag_error": rag_error,

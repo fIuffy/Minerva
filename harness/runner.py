@@ -123,15 +123,20 @@ def main() -> int:
         if args.payload is not None:
             value = args.payload
         elif _tty():
-            value = input(f"Exact value to send [{default}]: ").strip() or default
+            print(f"\n  default: {default!r}")
+            raw = input("Value to send — press ENTER for the default, or type/paste your own: ")
+            value = raw if raw.strip() else default
         else:
             value = default
             print(f"(non-interactive: using example payload: {default!r})")
         action = build_http_action(task, value)
-        print(f"\nWILL SEND -> {action['method']} {lab.LAB_BASE_URL}{action['path']}"
-              f"  params={action.get('params')} upload={'yes' if task.get('upload') else 'no'}")
+        kind = "upload body" if task.get("upload") else "value"
+        print(f"\nWILL SEND -> {action['method']} {lab.LAB_BASE_URL}{action['path']}")
+        print(f"  {kind}: {value!r}")
+        if action.get("params"):
+            print(f"  params: {action['params']}")
 
-        approved = args.yes or (_tty() and input("Execute against the lab? [y/N]: ").lower().startswith("y"))
+        approved = args.yes or (_tty() and input("Execute this exact action against the lab? [y/N]: ").lower().startswith("y"))
         executed = {"value": value, **{k: v for k, v in action.items() if k != "files"}}
         if approved:
             try:
