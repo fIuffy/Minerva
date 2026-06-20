@@ -1,23 +1,32 @@
 # Research dashboard
 
-A local control panel for the lab — monitor, browse, and plan experiments from
-one page. Runs on the **host** (like the harness), read-only by design.
+A local control panel and attack console for the lab: monitor status, browse
+records and findings, and operate attack steps from a single page. Runs on the
+host, alongside the harness.
 
+## Run
 ```bash
 py -m pip install -r dashboard/requirements.txt
-py dashboard/app.py          # → http://127.0.0.1:8090
+py dashboard/app.py          # http://127.0.0.1:8090
 ```
 
-**What it shows**
-- **Lab status** — portal / Keycloak / Ollama up-down, loaded models, pgvector chunk count.
-- **Runs** — A/B/C tallies + refusal count across every per-action record in `captures/`.
+## Capabilities
+- **Status** — portal / Keycloak / Ollama availability, loaded models, pgvector chunk count.
+- **Runs** — A/B/C tallies and refusal counts across every per-action record in `captures/`.
 - **Findings** — links to the gap records in `findings/`.
-- **Per-action records** — sortable list with category, technique, outcome; click to render.
-- **Propose** — pick a task + category and get the model's proposed step (read-only).
+- **Records** — per-action record list with category, technique, and outcome; rendered on click.
+- **Operate** — select a task and category; for Category B the local model proposes a step;
+  the operator reviews and edits the payload, then executes it against the lab. Each
+  execution writes a per-action record (§8.1).
+- **Probe** — issue `/ask` or `/lookup` against the lab to observe an effect.
 
-**What it does NOT do:** execute attacks. It only *proposes* (a model call) and hands you
-the exact `harness` command. Execution stays in the terminal because that is where the
-human-in-the-loop approval gate lives (§4). The dashboard never touches the lab targets.
+## Safety model
+Execution is human-in-the-loop (§4): no action runs until the operator reviews the
+payload and clicks Execute — the model only advises. Containment (§7) is enforced in
+code: every request passes through the harness host allowlist (`harness/lab.py`),
+which refuses any target outside the lab. There is no autonomous or looped execution;
+bounded-autonomous operation would require a documented amendment to the rules of
+engagement.
 
-Markdown viewing is path-restricted to the repo. Nothing here is exposed beyond
+Markdown viewing is path-restricted to the repository, and no port is exposed beyond
 `127.0.0.1`.

@@ -190,7 +190,7 @@ own right:
 
 ## Verification status
 
-Validated on this machine (Docker 27.3 / Compose v2.30):
+Validated locally (Docker 27.3 / Compose v2.30):
 
 - ✅ `docker compose config` valid (base **and** AD overlay).
 - ✅ All five service images build; all Python compiles; realm JSON + bash scripts parse.
