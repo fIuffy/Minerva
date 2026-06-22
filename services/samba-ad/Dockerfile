@@ -13,8 +13,11 @@
 # =============================================================================
 FROM debian:12-slim
 ENV DEBIAN_FRONTEND=noninteractive
+# samba-ad-provision ships the AD schema LDIFs (/usr/share/samba/setup/ad-schema/)
+# that `samba-tool domain provision` requires on Debian 12 — without it,
+# provisioning fails with "ad-schema/...ldf not found".
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        samba smbclient winbind krb5-user ldb-tools ldap-utils \
+        samba samba-ad-provision smbclient winbind krb5-user ldb-tools ldap-utils \
     && rm -rf /var/lib/apt/lists/*
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

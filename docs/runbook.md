@@ -106,4 +106,4 @@ artifact is captured verbatim per §8.1.
 | `rag-ingest` FATAL dim mismatch | `EMBED_DIM` ≠ `EMBED_MODEL` output. Set `EMBED_DIM` to match (nomic-embed-text=768). |
 | `/federal/{id}` 403 at checkpoint | Token assurance ≠ `high`. The `state-clerk` client is meant to be rejected — that's the control. |
 | Keycloak slow to go healthy | Dev-mode realm import; allow ~40s `start_period`. |
-| Samba AD won't provision | Needs `cap_add: SYS_ADMIN` + `seccomp:unconfined` (set in the overlay). Prefer genuine Windows AD (§2.6). |
+| Samba AD won't provision | Needs the `samba-ad-provision` package (AD schema LDIFs, in the Dockerfile) plus `cap_add: SYS_ADMIN` + `seccomp:unconfined` (in the overlay). Clear the `sambadata` volume before re-provisioning. Prefer genuine Windows AD (§2.6). |
