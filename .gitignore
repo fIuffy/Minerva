@@ -8,6 +8,9 @@
 captures/*
 !captures/.gitkeep
 !captures/README.md
+# Records pulled off the cloud instance — same sensitive class as captures/ (§7).
+captures-cloud/
+captures-*/
 
 # Python
 __pycache__/
