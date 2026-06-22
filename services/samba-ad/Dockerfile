@@ -13,11 +13,13 @@
 # =============================================================================
 FROM debian:12-slim
 ENV DEBIAN_FRONTEND=noninteractive
-# AD DC provisioning on Debian 12 needs the directory-services DB modules and
-# common-bin (these carry the schema setup support `samba-tool domain provision`
-# requires; the main `samba` package alone is not enough).
+# AD DC provisioning on Debian 12 needs samba-ad-provision (it ships the AD
+# schema LDIFs in /usr/share/samba/setup/ad-schema/ that `samba-tool domain
+# provision` requires). The main `samba` package alone is not enough, and
+# --no-install-recommends would otherwise drop it. samba-dsdb-modules provides
+# the AD DC database backend.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        samba samba-common-bin samba-dsdb-modules samba-vfs-modules \
+        samba samba-ad-provision samba-common-bin samba-dsdb-modules samba-vfs-modules \
         smbclient winbind krb5-user ldb-tools ldap-utils dnsutils \
     && rm -rf /var/lib/apt/lists/*
 COPY entrypoint.sh /entrypoint.sh
