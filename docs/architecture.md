@@ -18,7 +18,7 @@
 ## Network segmentation (microsegmentation analogue, §2.3)
 
 Two layers. (1) In the real lab, an encrypted Tailscale (WireGuard) mesh links
-the three hosts privately. (2) Inside the droplet, Docker bridge networks model
+the three hosts privately. (2) Inside the instance, Docker bridge networks model
 the trust boundaries among containerized tiers, mirroring NIST 800-207.
 
 | Docker network | Federal zone analogue | Attached components | Notes |
@@ -84,7 +84,7 @@ defensively significant gaps surface.
 
 | Tier | Includes | Supports |
 |------|----------|----------|
-| **FLOOR** (must have) | Tier 2 portal + AD (Windows or Samba) + RAG on the droplet, meshed via Tailscale, wired so the **AD-compromise → RAG-access pivot is executable** | The single strongest primary-contribution chain |
+| **FLOOR** (must have) | Tier 2 portal + AD (Windows or Samba) + RAG on the instance, meshed via Tailscale, wired so the **AD-compromise → RAG-access pivot is executable** | The single strongest primary-contribution chain |
 | **TARGET** (planned) | FLOOR + Tier 1 API + Keycloak checkpoint + the upload-poisoning path | All four §5.3 cross-framework targets |
 | **STRETCH** (if ahead) | TARGET + richer federal data, more service accounts, expanded baseline surface | Deeper baselines + stronger secondary comparison |
 

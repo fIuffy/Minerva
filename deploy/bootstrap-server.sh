@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Minerva — DigitalOcean droplet bootstrap (the environment node, §3).
-# Run as root on a FRESH Ubuntu 22.04/24.04 droplet:
+# Minerva — Vultr Linux instance bootstrap (the environment node, §3).
+# Run as root on a FRESH Ubuntu 22.04/24.04 Vultr Cloud Compute instance:
 #
-#   ssh root@<droplet-ip>
-#   curl -fsSL https://raw.githubusercontent.com/fIuffy/Minerva/main/deploy/bootstrap-droplet.sh | bash
-#   # (or scp the repo up and run ./deploy/bootstrap-droplet.sh)
+#   ssh root@<instance-ip>
+#   curl -fsSL https://raw.githubusercontent.com/fIuffy/Minerva/main/deploy/bootstrap-server.sh | bash
 #
 # Installs Docker + Tailscale, fetches the repo, brings up the TARGET stack, and
 # locks the host firewall. Idempotent enough to re-run. Reads optional env:
 #   REPO_URL          (default https://github.com/fIuffy/Minerva.git)
 #   TAILSCALE_AUTHKEY (skip interactive `tailscale up` auth if provided)
-#   SSH_ALLOW_IP      (your IP for UFW SSH allow; default: anywhere — tighten!)
+#   SSH_ALLOW_IP      (your IP for the UFW SSH allow; default: anywhere — tighten!)
 # =============================================================================
 set -euo pipefail
 REPO_URL="${REPO_URL:-https://github.com/fIuffy/Minerva.git}"
@@ -62,12 +61,13 @@ echo "[6/6] build + start the stack…"
 docker compose up -d --build
 echo
 echo "DONE. Next:"
-echo "  1) tailscale up   (if not already) and note this node's 100.x IP"
+echo "  1) tailscale up   (if not already) and note this instance's 100.x IP"
 echo "  2) on the laptop:  OLLAMA_HOST=0.0.0.0:11434 ollama serve   (note its 100.x IP)"
 echo "  3) set OLLAMA_BASE_URL in $APP_DIR/.env to the laptop's 100.x IP, then:"
 echo "        docker compose up -d && docker compose run --rm rag-ingest && ./scripts/healthcheck.sh"
-echo "  4) add genuine AD on a Vultr node, OR the Samba fallback here:"
+echo "  4) add Active Directory — Samba on this instance:"
 echo "        docker compose -f docker-compose.yml -f docker-compose.ad.yml up -d --build"
-echo "  5) reach the portal from your laptop WITHOUT exposing it:"
-echo "        ssh -L 8088:127.0.0.1:8088 -L 8090:127.0.0.1:8090 root@<droplet-tailnet-ip>"
+echo "     (or a genuine Windows Server 2022 Vultr instance — see deploy/SETUP.md)"
+echo "  5) reach the portal/dashboard from your laptop WITHOUT exposing them:"
+echo "        ssh -L 8088:127.0.0.1:8088 -L 8090:127.0.0.1:8090 root@<instance-tailnet-ip>"
 echo "  6) END OF SESSION: snapshot then DESTROY (powering off still bills) — see deploy/SETUP.md"

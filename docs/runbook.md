@@ -1,7 +1,7 @@
 # Runbook — build, mesh, run, tear down
 
-> Operational guide. The **Dockerized stack in this repo** is the DigitalOcean
-> droplet's tier and runs anywhere Docker does. The **three-node mesh, cloud
+> Operational guide. The **Dockerized stack in this repo** is the Vultr Linux
+> instance's tier and runs anywhere Docker does. The **three-node mesh, cloud
 > provisioning, genuine Windows AD, and laptop GPU inference** are infrastructure
 > the researcher provisions — covered here so the boundary between "scaffolded as
 > code" and "stood up by hand" is explicit (§2.5 build philosophy, §3).
@@ -33,51 +33,50 @@ the portal's `/federal/{id}` (which rides the federation path).
 Verified-price budget: ~$30–40 cloud over the full period under
 snapshot-and-destroy discipline, well inside the $150 cloud allocation.
 
-1. **DigitalOcean droplet (environment, 8 GB / 4 vCPU).** Install Docker + this
-   repo. Install Tailscale: `curl -fsSL https://tailscale.com/install.sh | sh && tailscale up`.
-   Lock the cloud firewall: inbound only from researcher IP (SSH) + tailnet.
-   Set `OLLAMA_BASE_URL=http://<laptop-tailnet-ip>:11434` in `.env`.
-2. **Vultr Windows AD node (~2 vCPU / 4 GB).** Deploy Windows Server 2022,
-   install Tailscale for Windows, promote to Domain Controller, seed a realistic
-   domain (SPNs on service accounts, a Kerberoastable account, a DCSync-capable
-   account). Droplet containers join/authenticate to this DC over the tailnet.
-   **Timeboxed fallback (§2.7):** if real Windows AD + cross-provider meshing
-   isn't stable in the Week-2 window, drop to the Samba AD DC overlay
-   (`docker-compose.ad.yml`) on the droplet — without hesitation — and record it
-   as a documented limitation.
+1. **Vultr Linux instance (environment, 2–4 vCPU / 4–8 GB).** Run the bootstrap
+   script (`deploy/bootstrap-server.sh`) to install Docker + Tailscale and fetch
+   this repo, or do it by hand. Lock the Vultr firewall: inbound only from the
+   researcher IP (SSH) + tailnet. Set `OLLAMA_BASE_URL=http://<laptop-tailnet-ip>:11434` in `.env`.
+2. **Vultr Windows AD instance (~2 vCPU / 4 GB), optional.** Deploy Windows Server
+   2022, install Tailscale for Windows, promote to Domain Controller, seed a
+   realistic domain (SPNs on service accounts, a Kerberoastable account, a
+   DCSync-capable account). The Linux instance's containers authenticate to this
+   DC over the tailnet. **Fallback (§2.7):** if the Windows node isn't stable in
+   the Week-2 window, drop to the Samba AD DC overlay (`docker-compose.ad.yml`) on
+   the Linux instance — without hesitation — and record it as a documented limitation.
 3. **Laptop inference (RTX 4050 / 32 GB).** Install Ollama + Tailscale. Bind
    Ollama to the tailnet: `OLLAMA_HOST=0.0.0.0:11434 ollama serve`. Confirm the
    model runs on the GPU (not CPU fallback). 7B–8B quantized (Llama 3 8B,
    Mistral 7B) is the assumed Category-B configuration.
-4. **Validate + pin.** End-to-end: a portal query flows droplet → RAG → laptop
-   GPU, and an AD auth flows droplet → DC. **Pin model name+digest and fix
+4. **Validate + pin.** End-to-end: a portal query flows instance → RAG → laptop
+   GPU, and an AD auth flows instance → DC. **Pin model name+digest and fix
    temperature/seed** for reproducible Category-B output (§9 nondeterminism).
 
 ## C. Start-of-session checklist (§3 guardrail #5)
 
-1. **Recreate** both cloud nodes from last session's snapshots.
-2. `tailscale status` — confirm all three hosts on the tailnet.
+1. **Recreate** the Vultr instance(s) from the last session's snapshots.
+2. `tailscale status` — confirm all hosts on the tailnet.
 3. Confirm the **laptop is awake** and Ollama answers on its tailnet IP.
 4. `./scripts/reset.sh` (or `--with-ad`) — pristine stack + healthcheck + re-ingest.
-5. Confirm **billing alerts** active: DO $50, Vultr $40.
+5. Confirm the **Vultr billing alert ($40) and spending limit** are active.
 
 ## D. End-of-session checklist — THE cost rule (§3, §6)
 
-> Powering off does **not** stop billing on either provider. **Snapshot then
-> destroy.** Ignoring this on the Windows node is the difference between ~$15 and
-> ~$106 over the period (§3.2).
+> Powering off does **not** stop Vultr billing. **Snapshot then destroy.**
+> Ignoring this on the Windows node is the difference between ~$15 and ~$106 over
+> the period (§3.2).
 
 ```bash
-# 1. Snapshot any captured data out of the droplet first (captures/ is gitignored).
-# 2. Snapshot THEN DESTROY both cloud nodes; recreate from snapshot next session:
-DO_DROPLET_ID=<id> VULTR_INSTANCE_ID=<id> ./scripts/snapshot-destroy.sh
-# 3. Verify in BOTH provider consoles that nothing is merely powered-off.
+# 1. Copy any captured data off the instance first (captures/ is gitignored).
+# 2. Snapshot THEN DESTROY every Vultr instance; recreate from snapshot next session:
+VULTR_INSTANCE_IDS="<linux-id> <windows-id>" ./scripts/snapshot-destroy.sh
+# 3. Verify in the Vultr console that nothing is merely powered-off.
 ```
 
-`doctl` reference (§6):
+`vultr-cli` reference (§6):
 ```bash
-doctl compute droplet-action snapshot <id> --snapshot-name "lab-$(date +%F)" --wait
-doctl compute droplet delete <id> --force
+vultr-cli snapshot create --id <instance-id> --description "lab-$(date +%F)"
+vultr-cli instance delete <instance-id>
 ```
 
 ## E. Per-scenario reset (§6 clean state)

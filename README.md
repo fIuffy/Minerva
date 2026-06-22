@@ -29,7 +29,7 @@ contributions that help defenders close documented blind spots.
 
 ## Scope: what's code vs. what's provisioned
 
-This repository is the **DigitalOcean droplet's Dockerized environment** — the
+This repository is the **Vultr Linux instance's Dockerized environment** — the
 **TARGET build** (§2.7) as code, validated and runnable. The wider three-node
 mesh is infrastructure the researcher stands up (see [`docs/runbook.md`](docs/runbook.md)):
 

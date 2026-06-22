@@ -4,7 +4,7 @@
 # "Every attack scenario runs against a freshly recreated stack. Observations
 #  from one run never contaminate the next."
 #
-#   ./scripts/reset.sh            # base droplet stack
+#   ./scripts/reset.sh            # base instance stack
 #   ./scripts/reset.sh --with-ad  # include the Samba AD DC fallback overlay
 # =============================================================================
 set -euo pipefail

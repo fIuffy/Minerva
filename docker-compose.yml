@@ -1,5 +1,5 @@
 # =============================================================================
-# Minerva Lab — droplet environment stack (FLOOR + TARGET build)
+# Minerva Lab — instance environment stack (FLOOR + TARGET build)
 # Attacking the Playbook — Cross-Framework Coverage Gap Analysis (ATT&CK/ATLAS)
 #
 # Models a U.S. federal/state enterprise MID-MIGRATION to zero trust (§2). The
@@ -9,8 +9,8 @@
 # net_federal (ZT-guarded, single policy-enforcement checkpoint).
 #
 # In the real lab the genuine Windows AD node and the laptop GPU (Ollama) are
-# separate Tailscale-meshed hosts (§3). This Compose file is the DigitalOcean
-# droplet's Dockerized tier. The Samba AD fallback (§2.7) is in the optional
+# separate Tailscale-meshed hosts (§3). This Compose file is the Vultr
+# instance's Dockerized tier. The Samba AD fallback (§2.7) is in the optional
 # overlay: docker-compose.ad.yml.
 #
 # CONTAINMENT (§7): every service here is a self-owned target on isolated Docker

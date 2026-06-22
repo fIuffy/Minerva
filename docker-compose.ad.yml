@@ -7,7 +7,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.ad.yml up -d
 #
 # In the real lab the AD DC is a SEPARATE Tailscale-meshed host (genuine Windows
-# on Vultr, §3); the droplet containers authenticate to it over the tailnet.
+# on Vultr, §3); the instance containers authenticate to it over the tailnet.
 # This overlay represents that node on a single machine for local development
 # and for exercising the AD-compromise -> RAG-access pivot (FLOOR chain, §2.7).
 # =============================================================================
@@ -36,5 +36,5 @@ services:
         aliases:
           - dc1.statefed.lab
           - statefed.lab
-    # No published ports: the DC is reachable by the droplet containers over
+    # No published ports: the DC is reachable by the instance containers over
     # net_internal (the tailnet analogue). DNS/Kerberos/LDAP/SMB stay internal.
