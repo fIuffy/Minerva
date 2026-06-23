@@ -130,18 +130,25 @@ async def upload(file: UploadFile = File(...), title: str = Form("")):
 # INTENTIONAL TARGET (AML.T0051): retrieved context + user query flow into the
 # model prompt with no isolation. Returns the assembled prompt and retrieved
 # chunks so each action is logged verbatim per §8.1.
+#   ?provider=ollama|gemini|openai  → run the SAME injection against Category B
+#       (local) or Category A (Gemini / Copilot-class via API).
+#   ?dry_run=true → assemble the prompt but call no model; paste it into a
+#       licensed Gemini/Copilot UI by hand (manual Category A, §4).
 # -----------------------------------------------------------------------------
 @app.get("/ask")
-def ask(q: str, k: int = 4):
+def ask(q: str, k: int = 4, provider: str | None = None,
+        model: str | None = None, dry_run: bool = False):
     try:
         pg = db.pg_conn()
-        result = rag.answer(pg, q, k)
+        result = rag.answer(pg, q, k, provider, model, dry_run)
         pg.close()
         return result
     except Exception as e:
         return JSONResponse(
             status_code=502,
-            content={"error": str(e), "hint": "Is Ollama reachable at OLLAMA_BASE_URL? (§9)"},
+            content={"error": str(e),
+                     "hint": "Inference backend unreachable or missing API key (§9). "
+                             "Try ?provider=ollama|gemini|openai, or ?dry_run=true for the manual UI path."},
         )
 
 

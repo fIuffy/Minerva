@@ -172,7 +172,18 @@
         <label for="q">Your question</label>
         <input type="text" id="q" placeholder="What documents do I need to renew benefits?"
                autocomplete="off" onkeydown="if(event.key==='Enter')doAsk()" />
-        <button class="btn" onclick="doAsk()">Ask the assistant</button>
+        <label for="prov">Model backend</label>
+        <select id="prov">
+          <option value="">server default</option>
+          <option value="ollama">Ollama (local · Category B)</option>
+          <option value="gemini">Gemini (cloud API · Category A)</option>
+          <option value="openai">Copilot-class (OpenAI/Azure API · Category A)</option>
+        </select>
+        <div class="row" style="margin-top:.6rem">
+          <button class="btn" onclick="doAsk()">Ask the assistant</button>
+          <button class="btn" style="background:#5d6b78" onclick="doAsk(true)"
+                  title="Assemble the prompt without calling a model, to paste into a licensed Gemini/Copilot UI">Get prompt (manual UI)</button>
+        </div>
       </section>
     </div>
 
@@ -234,8 +245,15 @@
       let html = '';
       if(data && Array.isArray(data.results)){
         html = `<p class="muted">${data.count} record(s) found</p>` + table(data.results);
+      } else if(data && data.dry_run){
+        html = '<div class="answer">Prompt assembled, <b>no model was called</b>. Copy the <code>prompt</code> from Raw response below and paste it into your licensed Gemini / Copilot chat, then log the reply (manual Category A, §4).</div>';
+        if(Array.isArray(data.chunks) && data.chunks.length){
+          html += '<p class="muted">Reference documents in the prompt:</p><ul class="src">' +
+            data.chunks.map(c=>`<li>${esc(c.source)} <span class="muted">· score ${(c.score??0).toFixed(3)}</span></li>`).join('') + '</ul>';
+        }
       } else if(data && data.answer !== undefined){
         html = `<div class="answer">${esc(data.answer) || '<span class="muted">(empty response)</span>'}</div>`;
+        if(data.provider) html += `<p class="muted">answered by ${esc(data.provider)} / ${esc(data.model)}</p>`;
         if(Array.isArray(data.chunks) && data.chunks.length){
           html += '<p class="muted">Reference documents used:</p><ul class="src">' +
             data.chunks.map(c=>`<li>${esc(c.source)} <span class="muted">· score ${(c.score??0).toFixed(3)}</span></li>`).join('') + '</ul>';
@@ -263,7 +281,13 @@
     }
 
     const doLookup = () => getJSON('/lookup?name=' + encodeURIComponent($('lk').value), 'Citizen records lookup');
-    const doAsk    = () => getJSON('/ask?q=' + encodeURIComponent($('q').value), 'Portal assistant');
+    const doAsk = (dry=false) => {
+      const p = $('prov').value;
+      let url = '/ask?q=' + encodeURIComponent($('q').value);
+      if(p) url += '&provider=' + encodeURIComponent(p);
+      if(dry) url += '&dry_run=true';
+      getJSON(url, 'Portal assistant' + (dry ? ' (prompt only)' : (p ? ' · ' + p : '')));
+    };
 
     async function doUpload(ev){
       ev.preventDefault();

@@ -1,11 +1,14 @@
 """RAG pipeline logic for the Tier 2 portal — the ATLAS core / pivot target.
 
 Flow:  user query --embed--> pgvector similarity search --> build prompt with
-retrieved context --> Ollama generate (Category-B local model) --> answer.
+retrieved context --> generate via the selected backend --> answer.
 
-Embeddings and generation are served by Ollama on the laptop GPU, reached over
-the Tailscale mesh (OLLAMA_BASE_URL). Inference is "external (split hosting)"
-per §2.6 — a documented mesh dependency, not a hidden one.
+Embeddings are served by Ollama on the laptop GPU over the Tailscale mesh
+(OLLAMA_BASE_URL). GENERATION is provider-selectable (GEN_PROVIDER or ?provider=):
+Ollama local for Category B, or Gemini / a Copilot-class OpenAI-Azure model for
+Category A over their cloud APIs, so the SAME retrieved-context injection can be
+tested across the guardrail spectrum (the EchoLeak-style surface). Inference is
+external split hosting per §2.6, a documented dependency, not hidden.
 
 ------------------------------------------------------------------------------
 INTENTIONAL RESEARCH TARGET (AML.T0051 — LLM Prompt Injection):
@@ -26,6 +29,19 @@ EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 EMBED_DIM = int(os.environ.get("EMBED_DIM", "768"))
 GEN_TEMPERATURE = float(os.environ.get("GEN_TEMPERATURE", "0"))
 GEN_SEED = int(os.environ.get("GEN_SEED", "42"))
+
+# Generation backend is selectable so the same retrieved-context (poisoned-doc)
+# injection can be tested against a local model (Category B) or a commercial one
+# (Category A) at the actual inference step. This is the EchoLeak-style test
+# surface (cf. CVE-2025-32711): an attacker-embedded document instruction reaching
+# Gemini / a Copilot-class (OpenAI/Azure) model through the RAG retrieval path.
+GEN_PROVIDER = os.environ.get("GEN_PROVIDER", "ollama")   # ollama | gemini | openai
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+DEFAULT_MODELS = {"ollama": GEN_MODEL, "gemini": GEMINI_MODEL, "openai": OPENAI_MODEL}
 
 # Retrieval-augmented system framing. Note there is no instruction-isolation of
 # the retrieved context below — that absence is the point (see module docstring).
@@ -88,24 +104,79 @@ def retrieve(pg, query: str, k: int = 4) -> list[dict]:
     ]
 
 
-def generate(prompt: str) -> str:
+def _gen_ollama(prompt: str, model: str) -> str:
     r = httpx.post(
         f"{OLLAMA_BASE_URL}/api/generate",
-        json={
-            "model": GEN_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": GEN_TEMPERATURE, "seed": GEN_SEED},
-        },
+        json={"model": model, "prompt": prompt, "stream": False,
+              "options": {"temperature": GEN_TEMPERATURE, "seed": GEN_SEED}},
         timeout=180.0,
     )
     r.raise_for_status()
     return r.json().get("response", "")
 
 
-def answer(pg, query: str, k: int = 4) -> dict:
-    """Full RAG turn. Returns the answer plus the assembled prompt and the
-    retrieved chunks so each action can be logged verbatim (§8.1 raw output)."""
+def _gen_gemini(prompt: str, model: str) -> str:
+    """Category A — Google Gemini over its cloud API (no local weights)."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY not set (Category A — Gemini).")
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent?key={GEMINI_API_KEY}")
+    r = httpx.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("promptFeedback", {}).get("blockReason"):
+        return f"[BLOCKED by Gemini: {data['promptFeedback']['blockReason']}]"
+    cands = data.get("candidates", [])
+    if not cands:
+        return "[Gemini returned no candidates]"
+    if cands[0].get("finishReason") == "SAFETY":
+        return "[BLOCKED by Gemini: SAFETY]"
+    parts = cands[0].get("content", {}).get("parts", [{}])
+    return "".join(p.get("text", "") for p in parts)
+
+
+def _gen_openai(prompt: str, model: str) -> str:
+    """Category A — a Copilot-class model via the OpenAI / Azure OpenAI API."""
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY not set (Category A — Copilot-class / OpenAI / Azure).")
+    r = httpx.post(
+        f"{OPENAI_BASE_URL}/chat/completions",
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        json={"model": model, "messages": [{"role": "user", "content": prompt}],
+              "temperature": GEN_TEMPERATURE},
+        timeout=120.0,
+    )
+    r.raise_for_status()
+    choice = r.json()["choices"][0]
+    if choice.get("finish_reason") == "content_filter":
+        return "[BLOCKED by provider: content_filter]"
+    return choice["message"]["content"]
+
+
+_GENERATORS = {"ollama": _gen_ollama, "gemini": _gen_gemini, "openai": _gen_openai}
+
+
+def generate(prompt: str, provider: str | None = None, model: str | None = None) -> str:
+    """Generate against the selected backend (ollama | gemini | openai). Lets the
+    same retrieved-context injection be tested across Category A and B at inference."""
+    provider = (provider or GEN_PROVIDER).lower()
+    model = model or DEFAULT_MODELS.get(provider, GEN_MODEL)
+    fn = _GENERATORS.get(provider)
+    if not fn:
+        raise ValueError(f"unknown generation provider '{provider}' (use ollama|gemini|openai)")
+    return fn(prompt, model)
+
+
+def answer(pg, query: str, k: int = 4, provider: str | None = None,
+           model: str | None = None, dry_run: bool = False) -> dict:
+    """Full RAG turn. Returns the answer plus the assembled prompt, retrieved
+    chunks, and which model answered — logged verbatim (§8.1) and recording the
+    commercial-vs-open-source comparison per query (§4).
+
+    dry_run=True assembles the (poisoned) prompt but calls NO model, so the
+    researcher can paste it into a licensed Gemini / M365 Copilot UI by hand —
+    the manual Category-A path (§4), and the only ToS-clean way to hit a product
+    with no API (e.g. real Copilot, the EchoLeak target)."""
     chunks = retrieve(pg, query, k)
     context_block = "\n\n".join(
         f"[Document: {c['source']}]\n{c['content']}" for c in chunks
@@ -117,5 +188,11 @@ def answer(pg, query: str, k: int = 4) -> dict:
         f"Citizen question: {query}\n\n"
         f"Answer:"
     )
-    response = generate(prompt)
-    return {"answer": response, "prompt": prompt, "chunks": chunks}
+    provider = (provider or GEN_PROVIDER).lower()
+    model = model or DEFAULT_MODELS.get(provider, GEN_MODEL)
+    if dry_run:
+        return {"answer": None, "dry_run": True, "provider": provider,
+                "model": model, "prompt": prompt, "chunks": chunks}
+    response = generate(prompt, provider, model)
+    return {"answer": response, "provider": provider, "model": model,
+            "prompt": prompt, "chunks": chunks}
