@@ -12,6 +12,10 @@ captures/*
 captures-cloud/
 captures-*/
 
+# Crafted injection demo documents — benign markers, but kept local by default
+# (the taxonomy + findings are the public deliverable). Un-ignore to publish.
+research/injection-corpus/
+
 # Python
 __pycache__/
 *.py[cod]
